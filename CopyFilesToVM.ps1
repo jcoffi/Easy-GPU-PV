@@ -27,14 +27,20 @@ function Is-Administrator
     (New-Object Security.Principal.WindowsPrincipal $CurrentUser).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)  
 }
 
+Function Dismount-ISO {
+param (
+[string]$SourcePath
+)
+$disk = Get-Volume | Where-Object {$_.DriveType -eq "CD-ROM"} | select *
+Foreach ($d in $disk) {
+    Dismount-DiskImage -ImagePath $sourcePath | Out-Null
+    }
+}
+
 Function Mount-ISOReliable {
 param (
 [string]$SourcePath
 )
-$VirtualDiskDrives = Get-Volume | Where-Object {$_.DriveType -eq "CD-ROM"} | select *
-Foreach ($individualDrive in $VirtualDiskDrives) {
-    Dismount-DiskImage -ImagePath $sourcePath | Out-Null
-    }
 $mountResult = Mount-DiskImage -ImagePath $SourcePath
 $delay = 0
 Do {
@@ -56,6 +62,7 @@ Do {
 Until (($mountResult | Get-Volume).DriveLetter -ne $NULL)
 ($mountResult | Get-Volume).DriveLetter
 }
+
 
 Function ConcatenateVHDPath {
 param(
@@ -96,8 +103,9 @@ Function Check-Params {
 
 $ExitReason = @()
 
-$ISODriveLetter = Mount-ISOReliable -SourcePath $params.SourcePath
-
+if ([ENVIRONMENT]::Is64BitProcess -eq $false) {
+    $ExitReason += "You are not using the correct version of Powershell, do not use Powershell(x86)."
+    }
 if ((Is-Administrator) -eq $false) {
     $ExitReason += "Script not running as Administrator, please run script as Administrator."
     }
@@ -107,8 +115,12 @@ if (!(Test-Path $params.VHDPath)) {
 if (!(test-path $params.SourcePath)) {
     $ExitReason += "ISO Path Invalid. Please enter a valid ISO Path in the SourcePath section of Params."
     }
-if (!(Test-Path $("$ISODriveLetter"+":\Sources\install.wim"))) {
-    $ExitReason += "This ISO is invalid, please check readme for ISO downloading instructions."
+else {
+    $ISODriveLetter = Mount-ISOReliable -SourcePath $params.SourcePath
+    if (!(Test-Path $("$ISODriveLetter"+":\Sources\install.wim"))) {
+        $ExitReason += "This ISO is invalid, please check readme for ISO downloading instructions."
+        }
+    Dismount-ISO -SourcePath $params.SourcePath 
     }
 if ($params.Username -eq $params.VMName ) {
     $ExitReason += "Username cannot be the same as VMName."
@@ -143,7 +155,7 @@ param(
 
     foreach ($line in $content) {
         if ($line -like "0Parameters="){
-            $line = "0Parameters=-team_id=$Team_ID -team_key=$Key"
+            $line = "0Parameters=$Team_ID $Key"
             $new += $line
             }
         Else {
@@ -1987,7 +1999,7 @@ You can use the fields below to configure the VHD or VHDX that you want to creat
             ####################################################################################################
 
             Write-W2VInfo "Looking for the requested Windows image in the WIM file"
-            $WindowsImage = Get-WindowsImage -ImagePath $SourcePath
+            $WindowsImage = Get-WindowsImage -ImagePath "$($driveLetter):\sources\install.wim"
 
             if (-not $WindowsImage -or ($WindowsImage -is [System.Array]))
             {
@@ -2610,6 +2622,7 @@ You can use the fields below to configure the VHD or VHDX that you want to creat
             }
 
             # Close out the transcript and tell the user we're done.
+            Dismount-ISO -SourcePath $ISOPath
             Write-W2VInfo "Done."
             if ($transcripting)
             {
@@ -4377,7 +4390,6 @@ param(
         }
     else {
     SmartExit -ExitReason "Failed to create VHDX, stopping script"
-
     }
 }
 
